@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# Conda
+.conda/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Output plots
+*.png
+
+# Data (keep CSV tracked, ignore large/derived data)
+*.parquet
+*.feather
+*.h5
+
+# Reports/exports
+*.zip
+
+# AI
+*claude*
