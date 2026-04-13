@@ -45,8 +45,10 @@ df = pd.read_csv("heart_disease_dataset.csv")
 df = df.drop_duplicates()
 df = df.dropna(subset=["Diabetes"])
 
-# Encode target
+# Encode target, then drop any rows where mapping produced NaN
+# (guards against unexpected values like lowercase or trailing spaces)
 df["Diabetes"] = df["Diabetes"].map({"Yes": 1, "No": 0})
+df = df.dropna(subset=["Diabetes"])
 
 print("=" * 55)
 print("STAGE 2 — DECISION TREE  |  Diabetes Prediction")
@@ -55,21 +57,21 @@ print(f"Dataset shape : {df.shape}")
 print(f"Class balance : {df['Diabetes'].value_counts().to_dict()}")
 
 # ──────────────────────────────────────────
-# 2. PREPROCESSING
+# 2. TRAIN / TEST SPLIT
+#    Split before any encoding so test set
+#    cannot influence the feature columns
 # ──────────────────────────────────────────
-# Drop the other target column; one-hot encode categoricals
 X = df.drop(columns=["Diabetes", "Heart Disease"])
-X = pd.get_dummies(X, drop_first=True)
 y = df["Diabetes"]
 
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42, stratify=y
 )
 
-# Scale for held-out test evaluation of Logistic Regression
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled  = scaler.transform(X_test)
+# One-hot encode on train, then align test to the same columns
+X_train = pd.get_dummies(X_train, drop_first=True)
+X_test  = pd.get_dummies(X_test,  drop_first=True)
+X_test  = X_test.reindex(columns=X_train.columns, fill_value=0)
 
 print(f"\nTraining samples : {len(X_train)}")
 print(f"Test samples     : {len(X_test)}")
@@ -77,28 +79,28 @@ print(f"Features         : {X_train.shape[1]}")
 
 # ──────────────────────────────────────────
 # 3. BASELINE — LOGISTIC REGRESSION
-#    Pipeline used for CV so scaling is fit within each fold (no data leakage)
+#    Single Pipeline for both hold-out eval
+#    and cross-validation (no code duplication,
+#    no data leakage — scaler fits per fold)
 # ──────────────────────────────────────────
 print("\n" + "=" * 55)
 print("LOGISTIC REGRESSION  (Baseline)")
 print("=" * 55)
 
-lr = LogisticRegression(max_iter=1000, random_state=42)
-lr.fit(X_train_scaled, y_train)
-lr_pred = lr.predict(X_test_scaled)
-
-lr_acc = accuracy_score(y_test, lr_pred)
-lr_f1  = f1_score(y_test, lr_pred)
-
-# Wrap in Pipeline so scaler is fit inside each fold — avoids leakage
 lr_pipeline = Pipeline([
     ("scaler", StandardScaler()),
     ("lr",     LogisticRegression(max_iter=1000, random_state=42)),
 ])
-lr_cv = cross_val_score(lr_pipeline, X_train, y_train, cv=5, scoring="f1", n_jobs=1).mean()
 
-print(f"Accuracy            : {lr_acc:.4f}")
-print(f"F1-Score            : {lr_f1:.4f}")
+lr_pipeline.fit(X_train, y_train)
+lr_pred = lr_pipeline.predict(X_test)
+
+lr_acc = accuracy_score(y_test, lr_pred)
+lr_f1  = f1_score(y_test, lr_pred)
+lr_cv  = cross_val_score(lr_pipeline, X_train, y_train, cv=5, scoring="f1", n_jobs=1).mean()
+
+print(f"Accuracy             : {lr_acc:.4f}")
+print(f"F1-Score             : {lr_f1:.4f}")
 print(f"Cross-Val F1 (5-fold): {lr_cv:.4f}")
 
 # ──────────────────────────────────────────
@@ -130,7 +132,8 @@ print(f"Best parameters      : {grid_search.best_params_}")
 dt_pred = best_dt.predict(X_test)
 dt_acc  = accuracy_score(y_test, dt_pred)
 dt_f1   = f1_score(y_test, dt_pred)
-# Use best_score_ from GridSearchCV — the unbiased CV score from tuning
+# best_score_ is the mean CV F1 for the best parameter combo during tuning
+# (note: still slightly optimistic due to model selection, but standard practice)
 dt_cv   = grid_search.best_score_
 
 print(f"Accuracy             : {dt_acc:.4f}")
@@ -162,10 +165,10 @@ print("MODEL COMPARISON")
 print("=" * 55)
 
 results = {
-    "Model"              : ["Logistic Regression", "Decision Tree (Tuned)"],
-    "Accuracy"           : [lr_acc, dt_acc],
-    "F1-Score"           : [lr_f1,  dt_f1],
-    "CV F1 (5-fold)"     : [lr_cv,  dt_cv],
+    "Model"          : ["Logistic Regression", "Decision Tree (Tuned)"],
+    "Accuracy"       : [lr_acc, dt_acc],
+    "F1-Score"       : [lr_f1,  dt_f1],
+    "CV F1 (5-fold)" : [lr_cv,  dt_cv],
 }
 comparison_df = pd.DataFrame(results)
 print(comparison_df.to_string(index=False))
@@ -175,9 +178,9 @@ x       = range(len(results["Model"]))
 width   = 0.25
 fig, ax = plt.subplots(figsize=(8, 5))
 
-ax.bar([i - width for i in x], results["Accuracy"],        width, label="Accuracy",         color="steelblue", edgecolor="black")
-ax.bar([i          for i in x], results["F1-Score"],        width, label="F1-Score",         color="salmon",    edgecolor="black")
-ax.bar([i + width  for i in x], results["CV F1 (5-fold)"],  width, label="CV F1 (5-fold)",   color="seagreen",  edgecolor="black")
+ax.bar([i - width for i in x], results["Accuracy"],       width, label="Accuracy",        color="steelblue", edgecolor="black")
+ax.bar([i          for i in x], results["F1-Score"],       width, label="F1-Score",        color="salmon",    edgecolor="black")
+ax.bar([i + width  for i in x], results["CV F1 (5-fold)"], width, label="CV F1 (5-fold)",  color="seagreen",  edgecolor="black")
 
 ax.set_xticks(list(x))
 ax.set_xticklabels(results["Model"], fontsize=11)
