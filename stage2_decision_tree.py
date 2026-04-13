@@ -15,6 +15,14 @@
 #   for Blood Pressure). Both models find the same weak signal — this is a valid
 #   finding, not a code error.
 #
+# NOTE ON PREPROCESSING vs STAGE 1:
+#   Stage 1 (diabetes_classifier.py) used statistical feature selection
+#   (Point-Biserial + Chi-Squared) which kept only 2 features. This script uses
+#   all features with one-hot encoding, which is the standard approach for
+#   Decision Trees since the tree splitting criterion handles feature selection
+#   internally. The LR baseline here is re-run under this same pipeline for a
+#   fair, direct comparison between the two Stage 2 models.
+#
 # FEATURE IMPORTANCES:
 #   Blood Pressure, Exercise Hours, Cholesterol, and Age are the top contributors,
 #   which is medically logical for a diabetes comorbidity even in a synthetic dataset.
@@ -26,6 +34,7 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
 from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
 from sklearn.metrics import accuracy_score, f1_score, confusion_matrix, classification_report
 import seaborn as sns
 
@@ -57,7 +66,7 @@ X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42, stratify=y
 )
 
-# Scale (needed for fair LR baseline comparison)
+# Scale for held-out test evaluation of Logistic Regression
 scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
 X_test_scaled  = scaler.transform(X_test)
@@ -68,10 +77,10 @@ print(f"Features         : {X_train.shape[1]}")
 
 # ──────────────────────────────────────────
 # 3. BASELINE — LOGISTIC REGRESSION
-#    (same model from Stage 1, re-run for direct comparison)
+#    Pipeline used for CV so scaling is fit within each fold (no data leakage)
 # ──────────────────────────────────────────
 print("\n" + "=" * 55)
-print("LOGISTIC REGRESSION  (Stage 1 Baseline)")
+print("LOGISTIC REGRESSION  (Baseline)")
 print("=" * 55)
 
 lr = LogisticRegression(max_iter=1000, random_state=42)
@@ -80,11 +89,17 @@ lr_pred = lr.predict(X_test_scaled)
 
 lr_acc = accuracy_score(y_test, lr_pred)
 lr_f1  = f1_score(y_test, lr_pred)
-lr_cv  = cross_val_score(lr, X_train_scaled, y_train, cv=5, scoring="f1", n_jobs=1).mean()
 
-print(f"Accuracy         : {lr_acc:.4f}")
-print(f"F1-Score         : {lr_f1:.4f}")
-print(f"Cross-Val F1 (5k): {lr_cv:.4f}")
+# Wrap in Pipeline so scaler is fit inside each fold — avoids leakage
+lr_pipeline = Pipeline([
+    ("scaler", StandardScaler()),
+    ("lr",     LogisticRegression(max_iter=1000, random_state=42)),
+])
+lr_cv = cross_val_score(lr_pipeline, X_train, y_train, cv=5, scoring="f1", n_jobs=1).mean()
+
+print(f"Accuracy            : {lr_acc:.4f}")
+print(f"F1-Score            : {lr_f1:.4f}")
+print(f"Cross-Val F1 (5-fold): {lr_cv:.4f}")
 
 # ──────────────────────────────────────────
 # 4. DECISION TREE — HYPERPARAMETER TUNING
@@ -110,16 +125,17 @@ grid_search = GridSearchCV(
 grid_search.fit(X_train, y_train)
 
 best_dt = grid_search.best_estimator_
-print(f"Best parameters  : {grid_search.best_params_}")
+print(f"Best parameters      : {grid_search.best_params_}")
 
 dt_pred = best_dt.predict(X_test)
 dt_acc  = accuracy_score(y_test, dt_pred)
 dt_f1   = f1_score(y_test, dt_pred)
-dt_cv   = cross_val_score(best_dt, X_train, y_train, cv=5, scoring="f1", n_jobs=1).mean()
+# Use best_score_ from GridSearchCV — the unbiased CV score from tuning
+dt_cv   = grid_search.best_score_
 
-print(f"Accuracy         : {dt_acc:.4f}")
-print(f"F1-Score         : {dt_f1:.4f}")
-print(f"Cross-Val F1 (5k): {dt_cv:.4f}")
+print(f"Accuracy             : {dt_acc:.4f}")
+print(f"F1-Score             : {dt_f1:.4f}")
+print(f"Cross-Val F1 (5-fold): {dt_cv:.4f}")
 print(f"\nClassification Report:\n{classification_report(y_test, dt_pred, target_names=['No Diabetes', 'Diabetes'])}")
 
 # ──────────────────────────────────────────
@@ -146,10 +162,10 @@ print("MODEL COMPARISON")
 print("=" * 55)
 
 results = {
-    "Model"   : ["Logistic Regression", "Decision Tree (Tuned)"],
-    "Accuracy": [lr_acc, dt_acc],
-    "F1-Score": [lr_f1,  dt_f1],
-    "CV F1"   : [lr_cv,  dt_cv],
+    "Model"              : ["Logistic Regression", "Decision Tree (Tuned)"],
+    "Accuracy"           : [lr_acc, dt_acc],
+    "F1-Score"           : [lr_f1,  dt_f1],
+    "CV F1 (5-fold)"     : [lr_cv,  dt_cv],
 }
 comparison_df = pd.DataFrame(results)
 print(comparison_df.to_string(index=False))
@@ -159,9 +175,9 @@ x       = range(len(results["Model"]))
 width   = 0.25
 fig, ax = plt.subplots(figsize=(8, 5))
 
-ax.bar([i - width for i in x], results["Accuracy"], width, label="Accuracy",  color="steelblue",  edgecolor="black")
-ax.bar([i          for i in x], results["F1-Score"], width, label="F1-Score",  color="salmon",     edgecolor="black")
-ax.bar([i + width  for i in x], results["CV F1"],    width, label="CV F1 (5k)", color="seagreen", edgecolor="black")
+ax.bar([i - width for i in x], results["Accuracy"],        width, label="Accuracy",         color="steelblue", edgecolor="black")
+ax.bar([i          for i in x], results["F1-Score"],        width, label="F1-Score",         color="salmon",    edgecolor="black")
+ax.bar([i + width  for i in x], results["CV F1 (5-fold)"],  width, label="CV F1 (5-fold)",   color="seagreen",  edgecolor="black")
 
 ax.set_xticks(list(x))
 ax.set_xticklabels(results["Model"], fontsize=11)
