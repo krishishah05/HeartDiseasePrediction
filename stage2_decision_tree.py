@@ -48,12 +48,9 @@ lr_pred = lr_pipeline.predict(X_test)
 
 lr_acc = accuracy_score(y_test, lr_pred)
 lr_f1  = f1_score(y_test, lr_pred)
-lr_cv  = cross_val_score(lr_pipeline, X_train, y_train, cv=5, scoring="f1", n_jobs=1).mean()
-
 print("\n--- Logistic Regression ---")
 print("Accuracy:", round(lr_acc, 4))
 print("F1-Score:", round(lr_f1, 4))
-print("CV F1 (5-fold):", round(lr_cv, 4))
 
 # decision tree with grid search hyperparameter tuning
 param_grid = {
@@ -78,11 +75,8 @@ print("Best params:", grid_search.best_params_)
 dt_pred = best_dt.predict(X_test)
 dt_acc  = accuracy_score(y_test, dt_pred)
 dt_f1   = f1_score(y_test, dt_pred)
-dt_cv   = grid_search.best_score_
-
 print("Accuracy:", round(dt_acc, 4))
 print("F1-Score:", round(dt_f1, 4))
-print("CV F1 (5-fold):", round(dt_cv, 4))
 print("\n", classification_report(y_test, dt_pred, target_names=["No Diabetes", "Diabetes"]))
 
 # confusion matrix
@@ -100,10 +94,9 @@ plt.show()
 
 # model comparison table
 results = {
-    "Model"         : ["Logistic Regression", "Decision Tree (Tuned)"],
-    "Accuracy"      : [lr_acc, dt_acc],
-    "F1-Score"      : [lr_f1,  dt_f1],
-    "CV F1 (5-fold)": [lr_cv,  dt_cv],
+    "Model"    : ["Logistic Regression", "Decision Tree (Tuned)"],
+    "Accuracy" : [lr_acc, dt_acc],
+    "F1-Score" : [lr_f1,  dt_f1],
 }
 comparison_df = pd.DataFrame(results)
 print("\nModel Comparison:")
@@ -111,12 +104,11 @@ print(comparison_df.to_string(index=False))
 
 # comparison bar chart
 x     = range(len(results["Model"]))
-width = 0.25
+width = 0.3
 fig, ax = plt.subplots(figsize=(8, 5))
 
-ax.bar([i - width for i in x], results["Accuracy"],       width, label="Accuracy",        color="steelblue", edgecolor="black")
-ax.bar([i          for i in x], results["F1-Score"],       width, label="F1-Score",        color="salmon",    edgecolor="black")
-ax.bar([i + width  for i in x], results["CV F1 (5-fold)"], width, label="CV F1 (5-fold)",  color="seagreen",  edgecolor="black")
+ax.bar([i - width/2 for i in x], results["Accuracy"], width, label="Accuracy",  color="steelblue", edgecolor="black")
+ax.bar([i + width/2 for i in x], results["F1-Score"], width, label="F1-Score",  color="salmon",    edgecolor="black")
 
 ax.set_xticks(list(x))
 ax.set_xticklabels(results["Model"], fontsize=11)
