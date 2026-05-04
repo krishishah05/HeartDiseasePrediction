@@ -11,26 +11,24 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-DATA_PATH = ROOT_DIR / "data" / "heart_disease_dataset.csv"
-PLOTS_DIR = ROOT_DIR / "stage_1" / "plots"
-PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+base_dir = Path(__file__).resolve().parents[1]
+data_path = base_dir / "data" / "heart_disease_dataset.csv"
+plots_dir = base_dir / "stage_1" / "plots"
+plots_dir.mkdir(parents=True, exist_ok=True)
 
 
 def save_plot(filename: str) -> None:
-    output_path = PLOTS_DIR / filename
+    output_path = plots_dir / filename
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"Saved: {output_path}")
 
 
 def main() -> None:
-    # 1) Load data
-    df = pd.read_csv(DATA_PATH)
+    df = pd.read_csv(data_path)
 
-    print("=" * 60)
-    print("DATASET OVERVIEW")
-    print("=" * 60)
+    print("\nDataset check")
+    print("-" * 40)
     print(f"Shape: {df.shape}")
     print(f"Columns ({len(df.columns)}): {df.columns.tolist()}")
     print("\nData types:")
@@ -54,10 +52,8 @@ def main() -> None:
         "Chest Pain Type",
     ]
 
-    # 2) Cleaning / preprocessing
-    print("\n" + "=" * 60)
-    print("PREPROCESSING / CLEANING")
-    print("=" * 60)
+    print("\nCleaning")
+    print("-" * 40)
     print("Missing values per column (before cleaning):")
     print(df.isna().sum())
 
@@ -80,10 +76,9 @@ def main() -> None:
     print("Target distribution after cleaning:")
     print(df["Diabetes"].value_counts())
 
-    # 3) EDA visualizations
-    print("\n" + "=" * 60)
+    print("\nEDA")
     print("EDA")
-    print("=" * 60)
+    print("-" * 40)
 
     plt.figure(figsize=(5, 4))
     df["Diabetes"].value_counts().sort_index().plot(
@@ -122,10 +117,8 @@ def main() -> None:
     plt.title("Correlation Heatmap (Numeric Features)")
     save_plot("plot_correlation_heatmap.png")
 
-    # 4) Initial modeling (classification)
-    print("\n" + "=" * 60)
-    print("MODEL TRAINING + EVALUATION")
-    print("=" * 60)
+    print("\nModel training")
+    print("-" * 40)
 
     selected_numeric = numeric_cols.copy()
     selected_categorical = categorical_cols.copy()
