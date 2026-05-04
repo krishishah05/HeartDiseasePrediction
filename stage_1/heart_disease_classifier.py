@@ -65,27 +65,25 @@ def main() -> None:
     print(f"\nDuplicate rows: {dupes}")
 
     df = df.drop_duplicates()
-    df = df.dropna(subset=["Diabetes"])
-    df["Diabetes"] = df["Diabetes"].map({"Yes": 1, "No": 0})
-    df = df.dropna(subset=["Diabetes"])
-    df["Diabetes"] = df["Diabetes"].astype(int)
+    df = df.dropna(subset=["Heart Disease"])
+    df["Heart Disease"] = df["Heart Disease"].astype(int)
 
     print("\nMissing values per column (after cleaning):")
     print(df.isna().sum())
     print(f"\nShape after cleaning: {df.shape}")
     print("Target distribution after cleaning:")
-    print(df["Diabetes"].value_counts())
+    print(df["Heart Disease"].value_counts())
 
     print("\nEDA")
     print("EDA")
     print("-" * 40)
 
     plt.figure(figsize=(5, 4))
-    df["Diabetes"].value_counts().sort_index().plot(
+    df["Heart Disease"].value_counts().sort_index().plot(
         kind="bar", color=["steelblue", "salmon"], edgecolor="black"
     )
-    plt.title("Diabetes Class Distribution")
-    plt.xlabel("Diabetes (0=No, 1=Yes)")
+    plt.title("Heart Disease Class Distribution")
+    plt.xlabel("Heart Disease (0=No, 1=Yes)")
     plt.ylabel("Count")
     plt.xticks(rotation=0)
     save_plot("plot_target_distribution.png")
@@ -93,23 +91,23 @@ def main() -> None:
     fig, axes = plt.subplots(2, 4, figsize=(18, 8))
     axes = axes.flatten()
     for i, col in enumerate(numeric_cols):
-        df.boxplot(column=col, by="Diabetes", ax=axes[i])
+        df.boxplot(column=col, by="Heart Disease", ax=axes[i])
         axes[i].set_title(col)
-        axes[i].set_xlabel("Diabetes")
+        axes[i].set_xlabel("Heart Disease")
     axes[-1].set_visible(False)
-    plt.suptitle("Numeric Features by Diabetes Status")
+    plt.suptitle("Numeric Features by Heart Disease Status")
     save_plot("plot_numeric_boxplots.png")
 
     fig, axes = plt.subplots(2, 4, figsize=(18, 8))
     axes = axes.flatten()
     for i, col in enumerate(categorical_cols):
-        ct = pd.crosstab(df[col], df["Diabetes"], normalize="index")
+        ct = pd.crosstab(df[col], df["Heart Disease"], normalize="index")
         ct.plot(kind="bar", ax=axes[i], colormap="coolwarm", edgecolor="black")
         axes[i].set_title(col)
         axes[i].set_xlabel("")
         axes[i].tick_params(axis="x", rotation=30)
     axes[-1].set_visible(False)
-    plt.suptitle("Diabetes Rate by Categorical Feature")
+    plt.suptitle("Heart Disease Rate by Categorical Feature")
     save_plot("plot_categorical_bars.png")
 
     plt.figure(figsize=(9, 7))
@@ -125,9 +123,9 @@ def main() -> None:
     print(f"Selected numeric features: {selected_numeric}")
     print(f"Selected categorical features: {selected_categorical}")
 
-    df_model = df[selected_numeric + selected_categorical + ["Diabetes"]].copy()
-    X = df_model.drop(columns=["Diabetes"])
-    y = df_model["Diabetes"]
+    df_model = df[selected_numeric + selected_categorical + ["Heart Disease"]].copy()
+    X = df_model.drop(columns=["Heart Disease"])
+    y = df_model["Heart Disease"]
 
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
@@ -158,7 +156,7 @@ def main() -> None:
     print(f"\nAccuracy: {accuracy:.4f}")
     print(f"F1-score: {f1:.4f}")
     print("\nClassification Report:")
-    print(classification_report(y_test, y_pred, target_names=["No Diabetes", "Diabetes"]))
+    print(classification_report(y_test, y_pred, target_names=["No Heart Disease", "Heart Disease"]))
 
     cm = confusion_matrix(y_test, y_pred)
     plt.figure(figsize=(5, 4))
@@ -167,8 +165,8 @@ def main() -> None:
         annot=True,
         fmt="d",
         cmap="Blues",
-        xticklabels=["No Diabetes", "Diabetes"],
-        yticklabels=["No Diabetes", "Diabetes"],
+        xticklabels=["No Heart Disease", "Heart Disease"],
+        yticklabels=["No Heart Disease", "Heart Disease"],
     )
     plt.title("Confusion Matrix - Logistic Regression")
     plt.xlabel("Predicted")

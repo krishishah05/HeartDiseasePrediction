@@ -4,12 +4,12 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
-from sklearn.model_selection import RandomizedSearchCV, cross_val_score, train_test_split
+from sklearn.model_selection import GridSearchCV, cross_val_score, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.tree import DecisionTreeClassifier
 
 
 base_dir = Path(__file__).resolve().parents[1]
@@ -31,10 +31,8 @@ def main() -> None:
         df = df.drop(columns=["Alcohol Intake"])
 
     df = df.drop_duplicates()
-    df = df.dropna(subset=["Diabetes"])
-    df["Diabetes"] = df["Diabetes"].map({"Yes": 1, "No": 0})
-    df = df.dropna(subset=["Diabetes"])
-    df["Diabetes"] = df["Diabetes"].astype(int)
+    df = df.dropna(subset=["Heart Disease"])
+    df["Heart Disease"] = df["Heart Disease"].astype(int)
 
     numeric_cols = [
         "Age",
@@ -48,6 +46,7 @@ def main() -> None:
     categorical_cols = [
         "Gender",
         "Smoking",
+        "Diabetes",
         "Family History",
         "Obesity",
         "Exercise Induced Angina",
@@ -55,7 +54,7 @@ def main() -> None:
     ]
 
     X = df[numeric_cols + categorical_cols]
-    y = df["Diabetes"]
+    y = df["Heart Disease"]
 
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
@@ -87,64 +86,55 @@ def main() -> None:
     print("Accuracy:", round(lr_acc, 4))
     print("F1-Score:", round(lr_f1, 4))
 
-    rf_pipeline = Pipeline(
+    dt_pipeline = Pipeline(
         steps=[
             ("preprocess", preprocessor),
-            ("model", RandomForestClassifier(random_state=42)),
+            ("model", DecisionTreeClassifier(random_state=42)),
         ]
     )
-    param_dist = {
-        "model__n_estimators": [100, 200, 300, 400],
-        "model__max_depth": [None, 5, 10, 15],
+    param_grid = {
+        "model__criterion": ["gini", "entropy"],
+        "model__max_depth": [3, 5, 7, None],
         "model__min_samples_split": [2, 5, 10],
         "model__min_samples_leaf": [1, 2, 4],
-        "model__max_features": ["sqrt", "log2", None],
     }
-    rf_search = RandomizedSearchCV(
-        rf_pipeline,
-        param_distributions=param_dist,
-        n_iter=20,
-        cv=5,
-        scoring="f1",
-        random_state=42,
-        n_jobs=1,
-    )
-    rf_search.fit(X_train, y_train)
+    grid_search = GridSearchCV(dt_pipeline, param_grid, cv=5, scoring="f1", n_jobs=1)
+    grid_search.fit(X_train, y_train)
 
-    best_rf = rf_search.best_estimator_
-    rf_pred = best_rf.predict(X_test)
-    rf_acc = accuracy_score(y_test, rf_pred)
-    rf_f1 = f1_score(y_test, rf_pred)
-    rf_cv_f1 = cross_val_score(best_rf, X_train, y_train, cv=5, scoring="f1")
+    best_dt = grid_search.best_estimator_
+    dt_pred = best_dt.predict(X_test)
+    dt_acc = accuracy_score(y_test, dt_pred)
+    dt_f1 = f1_score(y_test, dt_pred)
+    dt_cv_f1 = cross_val_score(best_dt, X_train, y_train, cv=5, scoring="f1")
 
-    print("\n--- Random Forest (Tuned) ---")
-    print("Best params:", rf_search.best_params_)
-    print("Accuracy:", round(rf_acc, 4))
-    print("F1-Score:", round(rf_f1, 4))
-    print("5-Fold CV F1:", [round(v, 4) for v in rf_cv_f1], "Mean:", round(rf_cv_f1.mean(), 4))
+    print("\n--- Decision Tree (Tuned) ---")
+    print("Best params:", grid_search.best_params_)
+    print("Accuracy:", round(dt_acc, 4))
+    print("F1-Score:", round(dt_f1, 4))
+    print("5-Fold CV F1:", [round(v, 4) for v in dt_cv_f1], "Mean:", round(dt_cv_f1.mean(), 4))
     print("\nClassification Report:")
-    print(classification_report(y_test, rf_pred, target_names=["No Diabetes", "Diabetes"]))
+    print(classification_report(y_test, dt_pred, target_names=["No Heart Disease", "Heart Disease"]))
 
-    cm = confusion_matrix(y_test, rf_pred)
+    cm = confusion_matrix(y_test, dt_pred)
     plt.figure(figsize=(5, 4))
     sns.heatmap(
         cm,
         annot=True,
         fmt="d",
         cmap="Blues",
-        xticklabels=["No Diabetes", "Diabetes"],
-        yticklabels=["No Diabetes", "Diabetes"],
+        xticklabels=["No Heart Disease", "Heart Disease"],
+        yticklabels=["No Heart Disease", "Heart Disease"],
     )
-    plt.title("Confusion Matrix - Random Forest (Tuned)")
+    plt.title("Confusion Matrix - Decision Tree (Tuned)")
     plt.xlabel("Predicted")
     plt.ylabel("Actual")
-    save_plot("plot_rf_confusion_matrix.png")
+    save_plot("plot_dt_confusion_matrix.png")
 
     comparison_df = pd.DataFrame(
         {
-            "Model": ["Logistic Regression", "Random Forest (Tuned)"],
-            "Accuracy": [lr_acc, rf_acc],
-            "F1-Score": [lr_f1, rf_f1],
+            "Model": ["Logistic Regression", "Decision Tree (Tuned)"],
+            "Accuracy": [lr_acc, dt_acc],
+            "F1-Score": [lr_f1, dt_f1],
         }
     )
     print("\nModel Comparison:")
@@ -162,10 +152,10 @@ def main() -> None:
     ax.set_title("Model Performance Comparison")
     ax.legend()
     plt.tight_layout()
-    save_plot("plot_stage2_rf_comparison.png")
+    save_plot("plot_stage2_dt_comparison.png")
 
-    model = best_rf.named_steps["model"]
-    feature_names = best_rf.named_steps["preprocess"].get_feature_names_out()
+    model = best_dt.named_steps["model"]
+    feature_names = best_dt.named_steps["preprocess"].get_feature_names_out()
     fi_df = (
         pd.DataFrame({"Feature": feature_names, "Importance": model.feature_importances_})
         .sort_values("Importance", ascending=False)
@@ -176,10 +166,10 @@ def main() -> None:
 
     plt.figure(figsize=(9, 5))
     plt.barh(fi_df["Feature"][::-1], fi_df["Importance"][::-1], color="steelblue", edgecolor="black")
-    plt.title("Random Forest - Top 10 Feature Importances")
+    plt.title("Decision Tree - Top 10 Feature Importances")
     plt.xlabel("Importance")
     plt.tight_layout()
-    save_plot("plot_rf_feature_importance.png")
+    save_plot("plot_dt_feature_importance.png")
 
 
 if __name__ == "__main__":
