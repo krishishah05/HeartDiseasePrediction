@@ -2,11 +2,13 @@ import base64
 import io
 
 import pandas as pd
-import plotly.express as px
+import plotly.graph_objects as go
 from dash import Dash, dcc, html, Input, Output, State, ALL
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression, LinearRegression
+from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
@@ -15,7 +17,7 @@ from sklearn.tree import DecisionTreeClassifier
 app = Dash(__name__)
 
 # store trained pipeline between callbacks
-model_store = {"pipeline": None, "features": [], "df": None}
+model_store = {"pipeline": None, "features": [], "df": None, "target": None, "task": None}
 
 app.layout = html.Div(style={"fontFamily": "Arial", "maxWidth": "950px", "margin": "auto", "padding": "20px"}, children=[
 
@@ -50,6 +52,8 @@ app.layout = html.Div(style={"fontFamily": "Arial", "maxWidth": "950px", "margin
 
     # step 4: train
     html.H4("Step 4: Train Model"),
+    dcc.Dropdown(id="model-dropdown", placeholder="Select target first to choose model"),
+    html.Div(id="model-info"),
     html.Button("Train Model", id="train-btn", n_clicks=0),
     html.Div(id="train-output"),
 
@@ -114,8 +118,20 @@ def show_class_distribution(target, data):
     df = pd.read_json(io.StringIO(data), orient="split")
     counts = df[target].value_counts().reset_index()
     counts.columns = [target, "Count"]
-    fig = px.bar(counts, x=target, y="Count", title=f"Class Distribution: {target}",
-                 color_discrete_sequence=["steelblue"])
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=counts[target],
+                y=counts["Count"],
+                marker_color="steelblue",
+            )
+        ]
+    )
+    fig.update_layout(
+        title=f"Class Distribution: {target}",
+        xaxis_title=target,
+        yaxis_title="Count",
+    )
     info = html.P(f"Class counts: {df[target].value_counts().to_dict()}")
     return fig, info
 
@@ -159,10 +175,57 @@ def show_correlation(features, target, data):
     corr = corr.sort_values(key=abs, ascending=False)
     corr_df = corr.reset_index()
     corr_df.columns = ["Feature", "Correlation"]
-    fig = px.bar(corr_df, x="Feature", y="Correlation",
-                 title=f"Feature Correlation with {target}",
-                 color_discrete_sequence=["teal"])
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=corr_df["Feature"],
+                y=corr_df["Correlation"],
+                marker_color="teal",
+            )
+        ]
+    )
+    fig.update_layout(
+        title=f"Feature Correlation with {target}",
+        xaxis_title="Feature",
+        yaxis_title="Correlation",
+    )
     return fig
+
+
+def is_categorical_target(series):
+    if not pd.api.types.is_numeric_dtype(series):
+        return True
+    non_null = series.dropna()
+    if non_null.empty:
+        return True
+    unique_count = non_null.nunique()
+    # treat low-cardinality integer-like numeric targets as categorical labels
+    is_integer_like = (non_null % 1 == 0).all()
+    return is_integer_like and unique_count <= 10
+
+
+@app.callback(
+    Output("model-dropdown", "options"),
+    Output("model-dropdown", "value"),
+    Output("model-info", "children"),
+    Input("target-dropdown", "value"),
+    State("stored-data", "data"),
+    prevent_initial_call=True,
+)
+def update_model_options(target, data):
+    if not target or not data:
+        return [], None, ""
+    df = pd.read_json(io.StringIO(data), orient="split")
+    target_series = df[target]
+    if is_categorical_target(target_series):
+        options = [
+            {"label": "Decision Tree", "value": "decision_tree"},
+            {"label": "Random Forest", "value": "random_forest"},
+            {"label": "Logistic Regression", "value": "logistic_regression"},
+        ]
+        return options, "decision_tree", html.P("Detected categorical target: classification models enabled.")
+    options = [{"label": "Linear Regression", "value": "linear_regression"}]
+    return options, "linear_regression", html.P("Detected numerical target: regression model enabled.")
 
 
 # train sklearn pipeline when button is clicked
@@ -172,16 +235,18 @@ def show_correlation(features, target, data):
     State("stored-data", "data"),
     State("target-dropdown", "value"),
     State("feature-dropdown", "value"),
+    State("model-dropdown", "value"),
     prevent_initial_call=True,
 )
-def train_model(n_clicks, data, target, features):
-    if not data or not target or not features:
-        return html.P("Please upload data and select target and features first.")
+def train_model(n_clicks, data, target, features, selected_model):
+    if not data or not target or not features or not selected_model:
+        return html.P("Please upload data and select target/features first.")
 
     df = pd.read_json(io.StringIO(data), orient="split")
     df = df.dropna(subset=[target])
     X = df[features]
     y = df[target]
+    is_classification = is_categorical_target(y)
 
     num_cols = [f for f in features if pd.api.types.is_numeric_dtype(df[f])]
     cat_cols = [f for f in features if f not in num_cols]
@@ -200,27 +265,50 @@ def train_model(n_clicks, data, target, features):
         ("cat", cat_pipe, cat_cols),
     ])
 
+    if is_classification:
+        if selected_model == "random_forest":
+            model = RandomForestClassifier(n_estimators=200, random_state=42)
+        elif selected_model == "logistic_regression":
+            model = LogisticRegression(max_iter=1000)
+        else:
+            model = DecisionTreeClassifier(max_depth=7, criterion="entropy", random_state=42)
+    else:
+        model = LinearRegression()
+
     pipeline = Pipeline([
         ("preprocessor", preprocessor),
-        ("model", DecisionTreeClassifier(max_depth=7, criterion="entropy", random_state=42)),
+        ("model", model),
     ])
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
+    split_kwargs = {"test_size": 0.2, "random_state": 42}
+    if is_classification:
+        split_kwargs["stratify"] = y
+    X_train, X_test, y_train, y_test = train_test_split(X, y, **split_kwargs)
     pipeline.fit(X_train, y_train)
     y_pred = pipeline.predict(X_test)
-
-    acc = accuracy_score(y_test, y_pred)
-    f1  = f1_score(y_test, y_pred, average="weighted")
 
     model_store["pipeline"] = pipeline
     model_store["features"] = features
     model_store["df"] = df
+    model_store["target"] = target
+    model_store["task"] = "classification" if is_classification else "regression"
 
+    if is_classification:
+        acc = accuracy_score(y_test, y_pred)
+        f1 = f1_score(y_test, y_pred, average="weighted")
+        return html.Div([
+            html.P(f"Model: {selected_model.replace('_', ' ').title()}"),
+            html.P(f"Accuracy : {round(acc, 4)}"),
+            html.P(f"F1-Score : {round(f1, 4)}"),
+            html.P("Model trained. Fill in Step 5 to make a prediction."),
+        ])
+
+    mae = mean_absolute_error(y_test, y_pred)
+    r2 = r2_score(y_test, y_pred)
     return html.Div([
-        html.P(f"Accuracy : {round(acc, 4)}"),
-        html.P(f"F1-Score : {round(f1, 4)}"),
+        html.P("Model: Linear Regression"),
+        html.P(f"MAE : {round(mae, 4)}"),
+        html.P(f"R2  : {round(r2, 4)}"),
         html.P("Model trained. Fill in Step 5 to make a prediction."),
     ])
 
@@ -271,9 +359,13 @@ def make_prediction(n_clicks, values, ids):
     feature_values = {id_["index"]: val for id_, val in zip(ids, values)}
     sample = pd.DataFrame([feature_values])
     prediction = model_store["pipeline"].predict(sample)[0]
-    label = "Heart Disease" if prediction == 1 else "No Heart Disease"
+    if model_store.get("task") == "classification":
+        return html.Div([
+            html.H5(f"Predicted Class: {prediction}"),
+            html.P(f"Raw value: {prediction}"),
+        ])
     return html.Div([
-        html.H5(f"Prediction: {label}"),
+        html.H5(f"Predicted Value: {round(float(prediction), 4)}"),
         html.P(f"Raw value: {prediction}"),
     ])
 
