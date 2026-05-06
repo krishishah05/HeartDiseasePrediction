@@ -1,4 +1,4 @@
-# CS301 Stage 3 App
+# CS301 Stage 3 App (Dash)
 
 This app implements Stage 3 requirements from the project description:
 - CSV upload with automated preprocessing
@@ -6,7 +6,7 @@ This app implements Stage 3 requirements from the project description:
 - Feature selection and correlation bar chart
 - Training with a scikit-learn Pipeline (imputation + one-hot encoding)
 - Manual input interface for real-time prediction
-- Deployment-ready Streamlit app
+- Deployment-ready Dash app
 
 ## Run locally
 
@@ -20,7 +20,7 @@ pip install -r stage_3/requirements.txt
 3. Run the app:
 
 ```bash
-streamlit run stage_3/app.py
+python stage_3/app.py
 ```
 
 ## Suggested test dataset
@@ -30,14 +30,25 @@ Use:
 
 ## Deploy
 
-### Streamlit Community Cloud
+### Google Cloud Run (free tier eligible)
 
-1. Push the project to GitHub.
-2. In Streamlit Cloud, create a new app.
-3. Set main file path to `stage_3/app.py`.
-4. Make sure dependency file includes `stage_3/requirements.txt` packages.
-5. Deploy and copy the public app URL for your report.
+1. Install and initialize Google Cloud CLI (`gcloud`).
+2. Create/select a GCP project and enable billing (required even when usage stays within free-tier limits).
+3. From `stage_3`, deploy:
+
+```bash
+gcloud run deploy heart-disease-app \
+  --source . \
+  --region us-central1 \
+  --platform managed \
+  --allow-unauthenticated \
+  --max-instances 1 \
+  --memory 512Mi \
+  --cpu 1
+```
+
+4. Open the generated Cloud Run URL.
 
 ### Heroku / Render (optional)
 
-You can also deploy Streamlit using a process file and runtime config if your class expects Heroku-like platforms.
+You can also deploy this Dash app using a process file and runtime config if your class expects Heroku-like platforms.

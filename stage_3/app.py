@@ -1,5 +1,6 @@
 import base64
 import io
+import os
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -8,13 +9,14 @@ from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression, LinearRegression
-from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, r2_score
+from sklearn.metrics import accuracy_score, f1_score, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.tree import DecisionTreeClassifier
 
 app = Dash(__name__)
+server = app.server
 
 # store trained pipeline between callbacks
 model_store = {"pipeline": None, "features": [], "df": None, "target": None, "task": None}
@@ -302,11 +304,11 @@ def train_model(n_clicks, data, target, features, selected_model):
             html.P("Model trained. Fill in Step 5 to make a prediction."),
         ])
 
-    mae = mean_absolute_error(y_test, y_pred)
+    rmse = mean_squared_error(y_test, y_pred, squared=False)
     r2 = r2_score(y_test, y_pred)
     return html.Div([
         html.P("Model: Linear Regression"),
-        html.P(f"MAE : {round(mae, 4)}"),
+        html.P(f"RMSE: {round(rmse, 4)}"),
         html.P(f"R2  : {round(r2, 4)}"),
         html.P("Model trained. Fill in Step 5 to make a prediction."),
     ])
@@ -369,4 +371,5 @@ def make_prediction(n_clicks, values, ids):
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 8080))
+    app.run_server(debug=False, host="0.0.0.0", port=port)
