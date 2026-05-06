@@ -1,4 +1,4 @@
-from pathlib import Path
+import os
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -11,21 +11,19 @@ from sklearn.model_selection import RandomizedSearchCV, cross_val_score, train_t
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-
-base_dir = Path(__file__).resolve().parents[1]
-data_path = base_dir / "data" / "heart_disease_dataset.csv"
-plots_dir = base_dir / "stage_2" / "plots"
-plots_dir.mkdir(parents=True, exist_ok=True)
+data_path = os.path.join(os.path.dirname(__file__), "..", "data", "heart_disease_dataset.csv")
+plots_dir = os.path.join(os.path.dirname(__file__), "plots")
+os.makedirs(plots_dir, exist_ok=True)
 
 
-def save_plot(filename: str) -> None:
-    output_path = plots_dir / filename
+def save_plot(filename):
+    output_path = os.path.join(plots_dir, filename)
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"Saved: {output_path}")
 
 
-def main() -> None:
+def main():
     df = pd.read_csv(data_path)
     if "Alcohol Intake" in df.columns:
         df = df.drop(columns=["Alcohol Intake"])
@@ -75,7 +73,7 @@ def main() -> None:
     lr_pipeline = Pipeline(
         steps=[
             ("preprocess", preprocessor),
-            ("model", LogisticRegression(max_iter=1000, random_state=42, class_weight="balanced")),
+            ("model", LogisticRegression(max_iter=1000, random_state=42)),
         ]
     )
     lr_pipeline.fit(X_train, y_train)
