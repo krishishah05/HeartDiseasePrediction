@@ -310,9 +310,9 @@ def train_model(n_clicks, data, target, features):
 
     placeholder = ", ".join(features)
     label = f"Enter values in order (with commas in between): {placeholder}"
-    if task == "regression":
-        return f"The R² score is: {round(r2_score(y_test, y_pred), 2)}", placeholder, label
-    return f"Accuracy: {round(accuracy_score(y_test, y_pred), 4)}", placeholder, label
+    score = round(r2_score(y_test, y_pred), 4)
+    metric_display = html.Span(["R", html.Sup("2"), f" score is: {score}"])
+    return metric_display, placeholder, label
 
 
 @app.callback(
