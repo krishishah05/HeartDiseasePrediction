@@ -308,32 +308,11 @@ def train_model(n_clicks, data, target, features):
     model_store["target"] = target
     model_store["task"] = task
 
-<<<<<<< HEAD
-    if is_classification:
-        acc = accuracy_score(y_test, y_pred)
-        f1 = f1_score(y_test, y_pred, average="weighted")
-        return html.Div([
-            html.P(f"Model: {selected_model.replace('_', ' ').title()}"),
-            html.P(f"Accuracy : {round(acc, 4)}"),
-            html.P(f"F1-Score : {round(f1, 4)}"),
-            html.P("Model trained. Fill in Step 5 to make a prediction."),
-        ])
-
-    rmse = mean_squared_error(y_test, y_pred, squared=False)
-    r2 = r2_score(y_test, y_pred)
-    return html.Div([
-        html.P("Model: Linear Regression"),
-        html.P(f"RMSE: {round(rmse, 4)}"),
-        html.P(f"R2  : {round(r2, 4)}"),
-        html.P("Model trained. Fill in Step 5 to make a prediction."),
-    ])
-=======
     placeholder = ", ".join(features)
     label = f"Enter values in order (with commas in between): {placeholder}"
     if task == "regression":
         return f"The R² score is: {round(r2_score(y_test, y_pred), 2)}", placeholder, label
     return f"Accuracy: {round(accuracy_score(y_test, y_pred), 4)}", placeholder, label
->>>>>>> a8a8f93 (Rewrite stage 3 app to match assignment layout and add final report)
 
 
 @app.callback(
@@ -370,5 +349,5 @@ def predict(n_clicks, input_value):
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    app.run_server(debug=False, host="0.0.0.0", port=port)
+    port = int(os.environ.get("PORT", 8050))
+    app.run(debug=False, host="0.0.0.0", port=port)
