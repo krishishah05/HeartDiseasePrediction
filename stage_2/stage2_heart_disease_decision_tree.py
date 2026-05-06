@@ -2,7 +2,6 @@ import os
 
 import matplotlib.pyplot as plt
 import pandas as pd
-import seaborn as sns
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
@@ -114,18 +113,21 @@ def main():
     print(classification_report(y_test, dt_pred, target_names=["No Heart Disease", "Heart Disease"]))
 
     cm = confusion_matrix(y_test, dt_pred)
-    plt.figure(figsize=(5, 4))
-    sns.heatmap(
-        cm,
-        annot=True,
-        fmt="d",
-        cmap="Blues",
-        xticklabels=["No Heart Disease", "Heart Disease"],
-        yticklabels=["No Heart Disease", "Heart Disease"],
-    )
-    plt.title("Confusion Matrix - Decision Tree (Tuned)")
-    plt.xlabel("Predicted")
-    plt.ylabel("Actual")
+    labels = ["No Heart Disease", "Heart Disease"]
+    fig, ax = plt.subplots(figsize=(5, 4))
+    im = ax.imshow(cm, cmap="Blues")
+    ax.set_xticks([0, 1])
+    ax.set_yticks([0, 1])
+    ax.set_xticklabels(labels)
+    ax.set_yticklabels(labels)
+    for i in range(2):
+        for j in range(2):
+            ax.text(j, i, str(cm[i, j]), ha="center", va="center", color="black", fontsize=12)
+    plt.colorbar(im, ax=ax)
+    ax.set_title("Confusion Matrix - Decision Tree (Tuned)")
+    ax.set_xlabel("Predicted")
+    ax.set_ylabel("Actual")
+    plt.tight_layout()
     save_plot("plot_dt_confusion_matrix.png")
 
     comparison_df = pd.DataFrame(
