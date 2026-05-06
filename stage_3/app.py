@@ -4,82 +4,138 @@ import os
 
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Dash, dcc, html, Input, Output, State, ALL
+from dash import Dash, dcc, html, Input, Output, State
 from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression, LinearRegression
-from sklearn.metrics import accuracy_score, f1_score, mean_squared_error, r2_score
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import accuracy_score, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.tree import DecisionTreeClassifier
 
 app = Dash(__name__)
 server = app.server
 
-# store trained pipeline between callbacks
 model_store = {"pipeline": None, "features": [], "df": None, "target": None, "task": None}
 
-app.layout = html.Div(style={"fontFamily": "Arial", "maxWidth": "950px", "margin": "auto", "padding": "20px"}, children=[
+app.layout = html.Div(
+    style={"fontFamily": "Arial", "maxWidth": "1100px", "margin": "auto", "padding": "20px"},
+    children=[
+        dcc.Store(id="stored-data"),
 
-    html.H2("CS301 - Heart Disease Prediction App"),
+        dcc.Upload(
+            id="upload-data",
+            children=html.Div(
+                "Upload File",
+                style={
+                    "textAlign": "center", "padding": "12px",
+                    "backgroundColor": "#d3d3d3", "cursor": "pointer",
+                    "fontWeight": "bold", "fontSize": "14px",
+                },
+            ),
+            style={"width": "100%", "marginBottom": "4px"},
+            multiple=False,
+        ),
+        html.Div(id="upload-info", style={"fontSize": "12px", "color": "gray", "marginBottom": "6px"}),
 
-    # step 1: upload
-    html.H4("Step 1: Upload Dataset"),
-    dcc.Upload(
-        id="upload-data",
-        children=html.Button("Upload CSV File"),
-        multiple=False,
-    ),
-    html.Div(id="upload-info"),
-    dcc.Store(id="stored-data"),
+        html.Div(
+            style={
+                "backgroundColor": "#e0e0e0", "padding": "8px 14px",
+                "display": "flex", "alignItems": "center", "marginBottom": "20px",
+            },
+            children=[
+                html.Label("Select Target:", style={"marginRight": "14px", "fontWeight": "bold", "whiteSpace": "nowrap"}),
+                dcc.Dropdown(
+                    id="target-dropdown",
+                    placeholder="Upload a CSV first",
+                    style={"width": "220px", "fontSize": "13px"},
+                    clearable=True,
+                ),
+            ],
+        ),
 
-    html.Hr(),
+        html.Div(
+            style={"display": "flex", "gap": "30px", "marginBottom": "24px"},
+            children=[
+                html.Div(
+                    style={"flex": 1},
+                    children=[
+                        dcc.RadioItems(
+                            id="cat-radio",
+                            inline=True,
+                            style={"fontSize": "13px", "marginBottom": "6px"},
+                            inputStyle={"marginRight": "4px"},
+                            labelStyle={"marginRight": "14px"},
+                        ),
+                        dcc.Graph(id="cat-bar-chart", style={"height": "340px"}),
+                    ],
+                ),
+                html.Div(
+                    style={"flex": 1},
+                    children=[
+                        dcc.Graph(id="corr-bar-chart", style={"height": "360px"}),
+                    ],
+                ),
+            ],
+        ),
 
-    # step 2: target selection
-    html.H4("Step 2: Select Target Column"),
-    dcc.Dropdown(id="target-dropdown", placeholder="Upload a CSV first"),
-    html.Div(id="target-info"),
-    dcc.Graph(id="class-dist-chart"),
+        dcc.Checklist(
+            id="feature-checklist",
+            options=[],
+            value=[],
+            inline=True,
+            inputStyle={"marginRight": "4px"},
+            labelStyle={"marginRight": "16px", "fontSize": "13px"},
+        ),
 
-    html.Hr(),
+        html.Button(
+            "Train",
+            id="train-btn",
+            n_clicks=0,
+            style={"marginTop": "10px", "padding": "5px 22px", "fontSize": "13px"},
+        ),
+        html.Div(id="train-result", style={"marginTop": "8px", "fontSize": "13px"}),
 
-    # step 3: feature selection + correlation
-    html.H4("Step 3: Select Features"),
-    dcc.Dropdown(id="feature-dropdown", multi=True, placeholder="Select features"),
-    dcc.Graph(id="correlation-chart"),
+        html.Hr(),
 
-    html.Hr(),
-
-    # step 4: train
-    html.H4("Step 4: Train Model"),
-    dcc.Dropdown(id="model-dropdown", placeholder="Select target first to choose model"),
-    html.Div(id="model-info"),
-    html.Button("Train Model", id="train-btn", n_clicks=0),
-    html.Div(id="train-output"),
-
-    html.Hr(),
-
-    # step 5: manual prediction
-    html.H4("Step 5: Make a Prediction"),
-    html.Div(id="prediction-form"),
-    html.Div([
-        html.Button("Predict", id="predict-btn", n_clicks=0),
-    ]),
-    html.Div(id="prediction-result"),
-])
+        html.Div(id="predict-label", style={"fontSize": "12px", "color": "gray", "marginBottom": "4px"}),
+        html.Div(
+            style={"display": "flex", "alignItems": "center", "gap": "10px"},
+            children=[
+                dcc.Input(
+                    id="predict-input",
+                    type="text",
+                    debounce=False,
+                    style={"width": "480px", "padding": "4px 8px", "fontSize": "13px"},
+                ),
+                html.Button(
+                    "Predict",
+                    id="predict-btn",
+                    n_clicks=0,
+                    style={"padding": "4px 16px", "fontSize": "13px"},
+                ),
+                html.Span(id="predict-result", style={"fontSize": "13px"}),
+            ],
+        ),
+    ],
+)
 
 
 def parse_csv(contents):
-    content_type, content_string = contents.split(",")
+    _, content_string = contents.split(",")
     decoded = base64.b64decode(content_string)
     df = pd.read_csv(io.StringIO(decoded.decode("utf-8")))
-    df = df.drop_duplicates()
-    return df
+    return df.drop_duplicates()
 
 
-# parse and store uploaded csv
+def is_classification(series):
+    non_null = series.dropna()
+    if not pd.api.types.is_numeric_dtype(series):
+        return True
+    return (non_null % 1 == 0).all() and non_null.nunique() <= 10
+
+
 @app.callback(
     Output("stored-data", "data"),
     Output("upload-info", "children"),
@@ -89,11 +145,9 @@ def parse_csv(contents):
 )
 def store_data(contents, filename):
     df = parse_csv(contents)
-    info = html.P(f"Loaded {filename} — {df.shape[0]} rows, {df.shape[1]} columns")
-    return df.to_json(date_format="iso", orient="split"), info
+    return df.to_json(date_format="iso", orient="split"), f"Loaded: {filename} — {df.shape[0]} rows, {df.shape[1]} columns"
 
 
-# populate target dropdown from uploaded data
 @app.callback(
     Output("target-dropdown", "options"),
     Output("target-dropdown", "value"),
@@ -102,189 +156,149 @@ def store_data(contents, filename):
 )
 def update_target_options(data):
     df = pd.read_json(io.StringIO(data), orient="split")
-    options = [{"label": c, "value": c} for c in sorted(df.columns)]
-    return options, None
+    num_cols = sorted([c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])])
+    return [{"label": c, "value": c} for c in num_cols], None
 
 
-# show class distribution or histogram depending on target type
 @app.callback(
-    Output("class-dist-chart", "figure"),
-    Output("target-info", "children"),
+    Output("cat-radio", "options"),
+    Output("cat-radio", "value"),
     Input("target-dropdown", "value"),
     State("stored-data", "data"),
     prevent_initial_call=True,
 )
-def show_class_distribution(target, data):
+def update_radio(target, data):
     if not target or not data:
-        return {}, ""
+        return [], None
     df = pd.read_json(io.StringIO(data), orient="split")
-    series = df[target]
-
-    if is_categorical_target(series):
-        # classification: bar chart of class counts
-        counts = series.value_counts().reset_index()
-        counts.columns = [target, "Count"]
-        counts[target] = counts[target].astype(str)
-        fig = go.Figure(go.Bar(x=counts[target], y=counts["Count"], marker_color="steelblue"))
-        fig.update_layout(title=f"Class Distribution: {target}", xaxis_title=target, yaxis_title="Count")
-        info = html.P(f"Class counts: {series.value_counts().to_dict()}")
-    else:
-        # regression: histogram of value distribution
-        fig = go.Figure(go.Histogram(x=series, marker_color="steelblue", nbinsx=30))
-        fig.update_layout(title=f"Distribution of {target}", xaxis_title=target, yaxis_title="Count")
-        info = html.P(f"Min: {round(series.min(), 2)}  |  Max: {round(series.max(), 2)}  |  Mean: {round(series.mean(), 2)}  |  Std: {round(series.std(), 2)}")
-
-    return fig, info
+    cat_cols = [c for c in df.columns if not pd.api.types.is_numeric_dtype(df[c]) and c != target]
+    if not cat_cols:
+        cat_cols = [c for c in df.columns if c != target and df[c].nunique() <= 10]
+    options = [{"label": c, "value": c} for c in cat_cols]
+    return options, cat_cols[0] if cat_cols else None
 
 
-# populate feature dropdown when target is selected
 @app.callback(
-    Output("feature-dropdown", "options"),
-    Output("feature-dropdown", "value"),
-    Input("target-dropdown", "value"),
-    State("stored-data", "data"),
-    prevent_initial_call=True,
-)
-def update_feature_options(target, data):
-    if not target or not data:
-        return [], []
-    df = pd.read_json(io.StringIO(data), orient="split")
-    cols = sorted([c for c in df.columns if c != target])
-    options = [{"label": c, "value": c} for c in cols]
-    return options, cols
-
-
-# show correlation bar chart when features are selected
-@app.callback(
-    Output("correlation-chart", "figure"),
-    Input("feature-dropdown", "value"),
+    Output("cat-bar-chart", "figure"),
+    Input("cat-radio", "value"),
     State("target-dropdown", "value"),
     State("stored-data", "data"),
     prevent_initial_call=True,
 )
-def show_correlation(features, target, data):
-    if not features or not target or not data:
+def update_cat_chart(cat_col, target, data):
+    if not cat_col or not target or not data:
         return {}
     df = pd.read_json(io.StringIO(data), orient="split")
-    numeric_features = [f for f in features if pd.api.types.is_numeric_dtype(df[f])]
-    if not numeric_features:
-        return {}
-    target_series = df[target]
-    if not pd.api.types.is_numeric_dtype(target_series):
-        target_series = pd.factorize(target_series)[0]
-    corr = df[numeric_features].corrwith(pd.Series(target_series, name=target))
-    corr = corr.sort_values(key=abs, ascending=False)
-    corr_df = corr.reset_index()
-    corr_df.columns = ["Feature", "Correlation"]
-    fig = go.Figure(
-        data=[
-            go.Bar(
-                x=corr_df["Feature"],
-                y=corr_df["Correlation"],
-                marker_color="teal",
-            )
-        ]
-    )
+    grouped = df.groupby(cat_col)[target].mean().reset_index()
+    fig = go.Figure(go.Bar(
+        x=grouped[cat_col].astype(str),
+        y=grouped[target].round(6),
+        text=grouped[target].round(6),
+        textposition="inside",
+        marker_color="lightsteelblue",
+    ))
     fig.update_layout(
-        title=f"Feature Correlation with {target}",
-        xaxis_title="Feature",
-        yaxis_title="Correlation",
+        title=f"Average {target} by {cat_col}",
+        xaxis_title=cat_col,
+        yaxis_title=f"{target} (average)",
+        margin={"t": 45, "b": 40, "l": 50, "r": 20},
     )
     return fig
 
 
-def is_categorical_target(series):
-    if not pd.api.types.is_numeric_dtype(series):
-        return True
-    non_null = series.dropna()
-    if non_null.empty:
-        return True
-    unique_count = non_null.nunique()
-    # treat low-cardinality integer-like numeric targets as categorical labels
-    is_integer_like = (non_null % 1 == 0).all()
-    return is_integer_like and unique_count <= 10
-
-
 @app.callback(
-    Output("model-dropdown", "options"),
-    Output("model-dropdown", "value"),
-    Output("model-info", "children"),
+    Output("corr-bar-chart", "figure"),
     Input("target-dropdown", "value"),
     State("stored-data", "data"),
     prevent_initial_call=True,
 )
-def update_model_options(target, data):
+def update_corr_chart(target, data):
     if not target or not data:
-        return [], None, ""
+        return {}
     df = pd.read_json(io.StringIO(data), orient="split")
-    target_series = df[target]
-    if is_categorical_target(target_series):
-        options = [
-            {"label": "Decision Tree", "value": "decision_tree"},
-            {"label": "Random Forest", "value": "random_forest"},
-            {"label": "Logistic Regression", "value": "logistic_regression"},
-        ]
-        return options, "decision_tree", html.P("Detected categorical target: classification models enabled.")
-    options = [{"label": "Linear Regression", "value": "linear_regression"}]
-    return options, "linear_regression", html.P("Detected numerical target: regression model enabled.")
+    num_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c]) and c != target]
+    if not num_cols:
+        return {}
+    corr = df[num_cols].corrwith(df[target]).abs().sort_values(ascending=False)
+    fig = go.Figure(go.Bar(
+        x=corr.index.tolist(),
+        y=corr.values.round(2),
+        text=corr.values.round(2),
+        textposition="outside",
+        marker_color="steelblue",
+    ))
+    fig.update_layout(
+        title=f"Numerical Correlation Strength with {target}",
+        xaxis_title="Numerical Variables",
+        yaxis_title="Correlation Strength (Absolute Value)",
+        yaxis_range=[0, corr.values.max() * 1.25 if len(corr) else 1],
+        margin={"t": 50, "b": 40, "l": 60, "r": 20},
+    )
+    return fig
 
 
-# train sklearn pipeline when button is clicked
 @app.callback(
-    Output("train-output", "children"),
+    Output("feature-checklist", "options"),
+    Output("feature-checklist", "value"),
+    Input("target-dropdown", "value"),
+    State("stored-data", "data"),
+    prevent_initial_call=True,
+)
+def update_checkboxes(target, data):
+    if not target or not data:
+        return [], []
+    df = pd.read_json(io.StringIO(data), orient="split")
+    features = [c for c in df.columns if c != target]
+    return [{"label": f, "value": f} for f in features], []
+
+
+@app.callback(
+    Output("train-result", "children"),
+    Output("predict-input", "placeholder"),
+    Output("predict-label", "children"),
     Input("train-btn", "n_clicks"),
     State("stored-data", "data"),
     State("target-dropdown", "value"),
-    State("feature-dropdown", "value"),
-    State("model-dropdown", "value"),
+    State("feature-checklist", "value"),
     prevent_initial_call=True,
 )
-def train_model(n_clicks, data, target, features, selected_model):
-    if not data or not target or not features or not selected_model:
-        return html.P("Please upload data and select target/features first.")
+def train_model(n_clicks, data, target, features):
+    if not data or not target:
+        return "Please upload data and select a target.", "", ""
+    if not features:
+        return "Please select at least one feature.", "", ""
 
     df = pd.read_json(io.StringIO(data), orient="split")
     df = df.dropna(subset=[target])
-    X = df[features]
-    y = df[target]
-    is_classification = is_categorical_target(y)
+    X, y = df[features], df[target]
 
     num_cols = [f for f in features if pd.api.types.is_numeric_dtype(df[f])]
     cat_cols = [f for f in features if f not in num_cols]
 
-    # build preprocessing pipeline (imputer + encoding)
-    num_pipe = Pipeline([
-        ("imputer", SimpleImputer(strategy="median")),
-        ("scaler",  StandardScaler()),
-    ])
-    cat_pipe = Pipeline([
-        ("imputer", SimpleImputer(strategy="most_frequent")),
-        ("encoder", OneHotEncoder(handle_unknown="ignore")),
-    ])
-    preprocessor = ColumnTransformer([
-        ("num", num_pipe, num_cols),
-        ("cat", cat_pipe, cat_cols),
-    ])
+    transformers = []
+    if num_cols:
+        transformers.append(("num", Pipeline([
+            ("imp", SimpleImputer(strategy="median")),
+            ("scl", StandardScaler()),
+        ]), num_cols))
+    if cat_cols:
+        transformers.append(("cat", Pipeline([
+            ("imp", SimpleImputer(strategy="most_frequent")),
+            ("enc", OneHotEncoder(handle_unknown="ignore")),
+        ]), cat_cols))
 
-    if is_classification:
-        if selected_model == "random_forest":
-            model = RandomForestClassifier(n_estimators=200, random_state=42)
-        elif selected_model == "logistic_regression":
-            model = LogisticRegression(max_iter=1000)
-        else:
-            model = DecisionTreeClassifier(max_depth=7, criterion="entropy", random_state=42)
-    else:
-        model = LinearRegression()
+    task = "classification" if is_classification(y) else "regression"
+    estimator = RandomForestClassifier(n_estimators=200, random_state=42) if task == "classification" else LinearRegression()
 
     pipeline = Pipeline([
-        ("preprocessor", preprocessor),
-        ("model", model),
+        ("preprocessor", ColumnTransformer(transformers)),
+        ("model", estimator),
     ])
 
-    split_kwargs = {"test_size": 0.2, "random_state": 42}
-    if is_classification:
-        split_kwargs["stratify"] = y
-    X_train, X_test, y_train, y_test = train_test_split(X, y, **split_kwargs)
+    if task == "classification":
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    else:
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     pipeline.fit(X_train, y_train)
     y_pred = pipeline.predict(X_test)
 
@@ -292,8 +306,9 @@ def train_model(n_clicks, data, target, features, selected_model):
     model_store["features"] = features
     model_store["df"] = df
     model_store["target"] = target
-    model_store["task"] = "classification" if is_classification else "regression"
+    model_store["task"] = task
 
+<<<<<<< HEAD
     if is_classification:
         acc = accuracy_score(y_test, y_pred)
         f1 = f1_score(y_test, y_pred, average="weighted")
@@ -312,62 +327,46 @@ def train_model(n_clicks, data, target, features, selected_model):
         html.P(f"R2  : {round(r2, 4)}"),
         html.P("Model trained. Fill in Step 5 to make a prediction."),
     ])
+=======
+    placeholder = ", ".join(features)
+    label = f"Enter values in order (with commas in between): {placeholder}"
+    if task == "regression":
+        return f"The R² score is: {round(r2_score(y_test, y_pred), 2)}", placeholder, label
+    return f"Accuracy: {round(accuracy_score(y_test, y_pred), 4)}", placeholder, label
+>>>>>>> a8a8f93 (Rewrite stage 3 app to match assignment layout and add final report)
 
 
-# generate manual input form after training
 @app.callback(
-    Output("prediction-form", "children"),
-    Input("train-output", "children"),
-    prevent_initial_call=True,
-)
-def generate_prediction_form(train_output):
-    if not model_store["features"] or model_store["df"] is None:
-        return ""
-    df = model_store["df"]
-    inputs = []
-    for f in model_store["features"]:
-        if pd.api.types.is_numeric_dtype(df[f]):
-            default = float(df[f].median())
-            inputs.append(html.Div([
-                html.Label(f, style={"fontWeight": "bold"}),
-                dcc.Input(id={"type": "pred-input", "index": f},
-                          type="number", value=default,
-                          style={"margin": "5px", "width": "200px"}),
-            ], style={"marginBottom": "8px"}))
-        else:
-            options = sorted(df[f].dropna().astype(str).unique().tolist())
-            inputs.append(html.Div([
-                html.Label(f, style={"fontWeight": "bold"}),
-                dcc.Dropdown(id={"type": "pred-input", "index": f},
-                             options=[{"label": o, "value": o} for o in options],
-                             value=options[0],
-                             style={"margin": "5px", "width": "250px"}),
-            ], style={"marginBottom": "8px"}))
-    return inputs
-
-
-# run prediction from manual inputs
-@app.callback(
-    Output("prediction-result", "children"),
+    Output("predict-result", "children"),
     Input("predict-btn", "n_clicks"),
-    State({"type": "pred-input", "index": ALL}, "value"),
-    State({"type": "pred-input", "index": ALL}, "id"),
+    State("predict-input", "value"),
     prevent_initial_call=True,
 )
-def make_prediction(n_clicks, values, ids):
-    if not model_store["pipeline"] or not values:
-        return ""
-    feature_values = {id_["index"]: val for id_, val in zip(ids, values)}
-    sample = pd.DataFrame([feature_values])
-    prediction = model_store["pipeline"].predict(sample)[0]
-    target = model_store.get("target", "Target")
-    if model_store.get("task") == "classification":
-        return html.Div([
-            html.H5(f"Prediction: {target} = {prediction}"),
-        ])
-    return html.Div([
-        html.H5(f"Prediction: {target} = {round(float(prediction), 4)}"),
-    ])
+def predict(n_clicks, input_value):
+    if not model_store["pipeline"]:
+        return "Please train a model first."
+    if not input_value:
+        return "Please enter feature values."
+    features = model_store["features"]
+    df_ref = model_store["df"]
+    target = model_store["target"]
+    parts = [v.strip() for v in input_value.split(",")]
+    if len(parts) != len(features):
+        return f"Expected {len(features)} values in order: {', '.join(features)}"
+    row = {}
+    for feat, val in zip(features, parts):
+        if pd.api.types.is_numeric_dtype(df_ref[feat]):
+            try:
+                row[feat] = float(val)
+            except ValueError:
+                return f"'{val}' is not a valid number for {feat}"
+        else:
+            row[feat] = val
+    pred = model_store["pipeline"].predict(pd.DataFrame([row]))[0]
+    if model_store["task"] == "regression":
+        return f"Predicted {target} is: {round(float(pred), 2)}"
+    label = " (Yes)" if str(pred) == "1" else " (No)" if str(pred) == "0" else ""
+    return f"Predicted {target} is: {pred}{label}"
 
 
 if __name__ == "__main__":
