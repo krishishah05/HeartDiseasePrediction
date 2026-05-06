@@ -1,8 +1,8 @@
 import os
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
-import seaborn as sns
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
@@ -20,6 +20,38 @@ def save_plot(filename):
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"Saved: {output_path}")
+
+
+def plot_heatmap(matrix, labels, title, fmt=".2f"):
+    fig, ax = plt.subplots(figsize=(len(labels) * 1.2 + 1, len(labels) * 1.2))
+    im = ax.imshow(matrix, cmap="coolwarm", vmin=-1, vmax=1)
+    ax.set_xticks(range(len(labels)))
+    ax.set_yticks(range(len(labels)))
+    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=9)
+    ax.set_yticklabels(labels, fontsize=9)
+    for i in range(len(labels)):
+        for j in range(len(labels)):
+            ax.text(j, i, format(matrix[i, j], fmt), ha="center", va="center", fontsize=8)
+    plt.colorbar(im, ax=ax)
+    ax.set_title(title)
+    plt.tight_layout()
+
+
+def plot_confusion_matrix(cm, labels, title):
+    fig, ax = plt.subplots(figsize=(5, 4))
+    im = ax.imshow(cm, cmap="Blues")
+    ax.set_xticks(range(len(labels)))
+    ax.set_yticks(range(len(labels)))
+    ax.set_xticklabels(labels)
+    ax.set_yticklabels(labels)
+    for i in range(len(labels)):
+        for j in range(len(labels)):
+            ax.text(j, i, str(cm[i, j]), ha="center", va="center", color="black", fontsize=12)
+    plt.colorbar(im, ax=ax)
+    ax.set_title(title)
+    ax.set_xlabel("Predicted")
+    ax.set_ylabel("Actual")
+    plt.tight_layout()
 
 
 def main():
@@ -107,9 +139,8 @@ def main():
     plt.suptitle("Heart Disease Rate by Categorical Feature")
     save_plot("plot_categorical_bars.png")
 
-    plt.figure(figsize=(9, 7))
-    sns.heatmap(df[numeric_cols].corr(), annot=True, fmt=".2f", cmap="coolwarm", linewidths=0.5)
-    plt.title("Correlation Heatmap (Numeric Features)")
+    corr = df[numeric_cols].corr().values
+    plot_heatmap(corr, numeric_cols, "Correlation Heatmap (Numeric Features)")
     save_plot("plot_correlation_heatmap.png")
 
     print("\nModel training")
@@ -156,18 +187,8 @@ def main():
     print(classification_report(y_test, y_pred, target_names=["No Heart Disease", "Heart Disease"]))
 
     cm = confusion_matrix(y_test, y_pred)
-    plt.figure(figsize=(5, 4))
-    sns.heatmap(
-        cm,
-        annot=True,
-        fmt="d",
-        cmap="Blues",
-        xticklabels=["No Heart Disease", "Heart Disease"],
-        yticklabels=["No Heart Disease", "Heart Disease"],
-    )
-    plt.title("Confusion Matrix - Logistic Regression")
-    plt.xlabel("Predicted")
-    plt.ylabel("Actual")
+    labels = ["No Heart Disease", "Heart Disease"]
+    plot_confusion_matrix(cm, labels, "Confusion Matrix - Logistic Regression")
     save_plot("plot_confusion_matrix.png")
 
 

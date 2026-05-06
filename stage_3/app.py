@@ -100,11 +100,11 @@ def store_data(contents, filename):
 )
 def update_target_options(data):
     df = pd.read_json(io.StringIO(data), orient="split")
-    options = [{"label": c, "value": c} for c in df.columns]
+    options = [{"label": c, "value": c} for c in sorted(df.columns)]
     return options, None
 
 
-# show class distribution when target is selected
+# show class distribution or histogram depending on target type
 @app.callback(
     Output("class-dist-chart", "figure"),
     Output("target-info", "children"),
@@ -116,23 +116,22 @@ def show_class_distribution(target, data):
     if not target or not data:
         return {}, ""
     df = pd.read_json(io.StringIO(data), orient="split")
-    counts = df[target].value_counts().reset_index()
-    counts.columns = [target, "Count"]
-    fig = go.Figure(
-        data=[
-            go.Bar(
-                x=counts[target],
-                y=counts["Count"],
-                marker_color="steelblue",
-            )
-        ]
-    )
-    fig.update_layout(
-        title=f"Class Distribution: {target}",
-        xaxis_title=target,
-        yaxis_title="Count",
-    )
-    info = html.P(f"Class counts: {df[target].value_counts().to_dict()}")
+    series = df[target]
+
+    if is_categorical_target(series):
+        # classification: bar chart of class counts
+        counts = series.value_counts().reset_index()
+        counts.columns = [target, "Count"]
+        counts[target] = counts[target].astype(str)
+        fig = go.Figure(go.Bar(x=counts[target], y=counts["Count"], marker_color="steelblue"))
+        fig.update_layout(title=f"Class Distribution: {target}", xaxis_title=target, yaxis_title="Count")
+        info = html.P(f"Class counts: {series.value_counts().to_dict()}")
+    else:
+        # regression: histogram of value distribution
+        fig = go.Figure(go.Histogram(x=series, marker_color="steelblue", nbinsx=30))
+        fig.update_layout(title=f"Distribution of {target}", xaxis_title=target, yaxis_title="Count")
+        info = html.P(f"Min: {round(series.min(), 2)}  |  Max: {round(series.max(), 2)}  |  Mean: {round(series.mean(), 2)}  |  Std: {round(series.std(), 2)}")
+
     return fig, info
 
 
@@ -148,7 +147,7 @@ def update_feature_options(target, data):
     if not target or not data:
         return [], []
     df = pd.read_json(io.StringIO(data), orient="split")
-    cols = [c for c in df.columns if c != target]
+    cols = sorted([c for c in df.columns if c != target])
     options = [{"label": c, "value": c} for c in cols]
     return options, cols
 
@@ -359,14 +358,13 @@ def make_prediction(n_clicks, values, ids):
     feature_values = {id_["index"]: val for id_, val in zip(ids, values)}
     sample = pd.DataFrame([feature_values])
     prediction = model_store["pipeline"].predict(sample)[0]
+    target = model_store.get("target", "Target")
     if model_store.get("task") == "classification":
         return html.Div([
-            html.H5(f"Predicted Class: {prediction}"),
-            html.P(f"Raw value: {prediction}"),
+            html.H5(f"Prediction: {target} = {prediction}"),
         ])
     return html.Div([
-        html.H5(f"Predicted Value: {round(float(prediction), 4)}"),
-        html.P(f"Raw value: {prediction}"),
+        html.H5(f"Prediction: {target} = {round(float(prediction), 4)}"),
     ])
 
 
