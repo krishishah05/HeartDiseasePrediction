@@ -88,6 +88,12 @@ app.layout = html.Div(
             inputStyle={"marginRight": "4px"},
             labelStyle={"marginRight": "16px", "fontSize": "13px"},
         ),
+        html.Button(
+            "Select/Deselect All",
+            id="toggle-features-btn",
+            n_clicks=0,
+            style={"marginTop": "8px", "padding": "4px 12px", "fontSize": "12px"},
+        ),
 
         html.Button(
             "Train",
@@ -129,11 +135,68 @@ def parse_csv(contents):
     return df.drop_duplicates()
 
 
+def coerce_numeric(series):
+    as_string = series.astype("string").str.strip()
+    return pd.to_numeric(as_string, errors="coerce")
+
+
+def is_numeric_column(series, min_valid_ratio=0.95):
+    if pd.api.types.is_bool_dtype(series):
+        return False
+    if pd.api.types.is_numeric_dtype(series):
+        return True
+    coerced = coerce_numeric(series)
+    non_null_mask = series.notna()
+    if non_null_mask.sum() == 0:
+        return False
+    valid_ratio = coerced[non_null_mask].notna().mean()
+    return valid_ratio >= min_valid_ratio
+
+
+def is_categorical_like_column(series):
+    if not is_numeric_column(series):
+        return True
+    numeric = coerce_numeric(series).dropna()
+    if numeric.empty:
+        return True
+    return (numeric % 1 == 0).all() and numeric.nunique() <= 10
+
+
 def is_classification(series):
     non_null = series.dropna()
-    if not pd.api.types.is_numeric_dtype(series):
+    if non_null.empty:
+        return False
+
+    # Explicit binary-label detection (supports numeric and string-like 0/1).
+    numeric_cast = coerce_numeric(non_null)
+    if not numeric_cast.isna().any():
+        unique_numeric = set(numeric_cast.unique())
+        if unique_numeric.issubset({0, 1}):
+            return True
+
+    # Non-numeric targets are usually labels.
+    if pd.api.types.is_bool_dtype(series):
         return True
-    return (non_null % 1 == 0).all() and non_null.nunique() <= 10
+    if not is_numeric_column(series):
+        n_unique = non_null.nunique()
+        return n_unique <= 50 and (n_unique / len(non_null) <= 0.5)
+
+    # Numeric targets are treated as classification only when they clearly
+    # behave like label IDs; otherwise default to regression.
+    non_null = coerce_numeric(non_null).dropna()
+    if not (non_null % 1 == 0).all():
+        return False
+
+    n_unique = non_null.nunique()
+    if n_unique <= 2:
+        return True
+
+    # Too many unique integer values likely indicates regression/ordinal score.
+    if n_unique > 20:
+        return False
+
+    value_counts = non_null.value_counts()
+    return (n_unique / len(non_null) <= 0.1) and value_counts.min() >= 3
 
 
 @app.callback(
@@ -156,8 +219,8 @@ def store_data(contents, filename):
 )
 def update_target_options(data):
     df = pd.read_json(io.StringIO(data), orient="split")
-    num_cols = sorted([c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])])
-    return [{"label": c, "value": c} for c in num_cols], None
+    cols = sorted(df.columns.tolist())
+    return [{"label": c, "value": c} for c in cols], None
 
 
 @app.callback(
@@ -171,9 +234,7 @@ def update_radio(target, data):
     if not target or not data:
         return [], None
     df = pd.read_json(io.StringIO(data), orient="split")
-    cat_cols = [c for c in df.columns if not pd.api.types.is_numeric_dtype(df[c]) and c != target]
-    if not cat_cols:
-        cat_cols = [c for c in df.columns if c != target and df[c].nunique() <= 10]
+    cat_cols = [c for c in df.columns if c != target and is_categorical_like_column(df[c])]
     options = [{"label": c, "value": c} for c in cat_cols]
     return options, cat_cols[0] if cat_cols else None
 
@@ -189,18 +250,45 @@ def update_cat_chart(cat_col, target, data):
     if not cat_col or not target or not data:
         return {}
     df = pd.read_json(io.StringIO(data), orient="split")
-    grouped = df.groupby(cat_col)[target].mean().reset_index()
-    fig = go.Figure(go.Bar(
-        x=grouped[cat_col].astype(str),
-        y=grouped[target].round(6),
-        text=grouped[target].round(6),
-        textposition="inside",
-        marker_color="lightsteelblue",
-    ))
+    plot_df = df[[cat_col, target]].dropna().copy()
+    if plot_df.empty:
+        return {}
+
+    target_is_classification = is_classification(plot_df[target])
+
+    # Regression-style target: show average target by category.
+    if not target_is_classification:
+        plot_df[target] = coerce_numeric(plot_df[target])
+        grouped = plot_df.groupby(cat_col)[target].mean().dropna().reset_index()
+        fig = go.Figure(go.Bar(
+            x=grouped[cat_col].astype(str),
+            y=grouped[target].round(6),
+            text=grouped[target].round(6),
+            textposition="inside",
+            marker_color="lightsteelblue",
+        ))
+        fig.update_layout(
+            title=f"Average {target} by {cat_col}",
+            xaxis_title=cat_col,
+            yaxis_title=f"{target} (average)",
+            margin={"t": 45, "b": 40, "l": 50, "r": 20},
+        )
+        return fig
+
+    # Classification target: show target class distribution by category.
+    dist = pd.crosstab(plot_df[cat_col], plot_df[target], normalize="index")
+    fig = go.Figure()
+    for cls in dist.columns:
+        fig.add_trace(go.Bar(
+            name=str(cls),
+            x=dist.index.astype(str),
+            y=dist[cls].values,
+        ))
     fig.update_layout(
-        title=f"Average {target} by {cat_col}",
+        title=f"{target} Distribution by {cat_col}",
         xaxis_title=cat_col,
-        yaxis_title=f"{target} (average)",
+        yaxis_title="Proportion",
+        barmode="stack",
         margin={"t": 45, "b": 40, "l": 50, "r": 20},
     )
     return fig
@@ -216,10 +304,16 @@ def update_corr_chart(target, data):
     if not target or not data:
         return {}
     df = pd.read_json(io.StringIO(data), orient="split")
-    num_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c]) and c != target]
+    if is_classification(df[target]):
+        return {}
+    num_cols = [c for c in df.columns if c != target and is_numeric_column(df[c])]
     if not num_cols:
         return {}
-    corr = df[num_cols].corrwith(df[target]).abs().sort_values(ascending=False)
+    numeric_df = pd.DataFrame({c: coerce_numeric(df[c]) for c in num_cols})
+    target_numeric = coerce_numeric(df[target])
+    corr = numeric_df.corrwith(target_numeric).abs().dropna().sort_values(ascending=False)
+    if corr.empty:
+        return {}
     fig = go.Figure(go.Bar(
         x=corr.index.tolist(),
         y=corr.values.round(2),
@@ -253,6 +347,25 @@ def update_checkboxes(target, data):
 
 
 @app.callback(
+    Output("feature-checklist", "value", allow_duplicate=True),
+    Input("toggle-features-btn", "n_clicks"),
+    State("feature-checklist", "options"),
+    State("feature-checklist", "value"),
+    prevent_initial_call=True,
+)
+def toggle_all_features(n_clicks, options, selected):
+    if not options:
+        return []
+
+    all_values = [opt["value"] for opt in options]
+    selected = selected or []
+
+    if len(selected) == len(all_values):
+        return []
+    return all_values
+
+
+@app.callback(
     Output("train-result", "children"),
     Output("predict-input", "placeholder"),
     Output("predict-label", "children"),
@@ -270,10 +383,12 @@ def train_model(n_clicks, data, target, features):
 
     df = pd.read_json(io.StringIO(data), orient="split")
     df = df.dropna(subset=[target])
-    X, y = df[features], df[target]
+    X, y = df[features].copy(), df[target].copy()
 
-    num_cols = [f for f in features if pd.api.types.is_numeric_dtype(df[f])]
+    num_cols = [f for f in features if is_numeric_column(df[f])]
     cat_cols = [f for f in features if f not in num_cols]
+    for col in num_cols:
+        X[col] = coerce_numeric(X[col])
 
     transformers = []
     if num_cols:
@@ -289,6 +404,10 @@ def train_model(n_clicks, data, target, features):
 
     task = "classification" if is_classification(y) else "regression"
     estimator = RandomForestClassifier(n_estimators=200, random_state=42) if task == "classification" else LinearRegression()
+    if task == "regression":
+        y = coerce_numeric(y)
+        valid_rows = y.notna()
+        X, y = X.loc[valid_rows], y.loc[valid_rows]
 
     pipeline = Pipeline([
         ("preprocessor", ColumnTransformer(transformers)),
@@ -310,8 +429,12 @@ def train_model(n_clicks, data, target, features):
 
     placeholder = ", ".join(features)
     label = f"Enter values in order (with commas in between): {placeholder}"
-    score = round(r2_score(y_test, y_pred), 4)
-    metric_display = html.Span(["R", html.Sup("2"), f" score is: {score}"])
+    if task == "classification":
+        score = round(accuracy_score(y_test, y_pred), 4)
+        metric_display = html.Span(f"Accuracy is: {score}")
+    else:
+        score = round(r2_score(y_test, y_pred), 4)
+        metric_display = html.Span(["R", html.Sup("2"), f" score is: {score}"])
     return metric_display, placeholder, label
 
 
@@ -334,7 +457,7 @@ def predict(n_clicks, input_value):
         return f"Expected {len(features)} values in order: {', '.join(features)}"
     row = {}
     for feat, val in zip(features, parts):
-        if pd.api.types.is_numeric_dtype(df_ref[feat]):
+        if is_numeric_column(df_ref[feat]):
             try:
                 row[feat] = float(val)
             except ValueError:
@@ -349,5 +472,7 @@ def predict(n_clicks, input_value):
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8050))
-    app.run(debug=False, host="0.0.0.0", port=port)
+    # port = int(os.environ.get("PORT", 8050))
+    # app.run(debug=False, host="0.0.0.0", port=port)
+
+    app.run(debug=True)
